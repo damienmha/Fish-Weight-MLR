@@ -1,0 +1,302 @@
+---
+title: "Multiple Linear Regression Testing On Fish Weight"
+author: "Damien Ha, Kowoon Jeong, Josh Xu, Jane Zou"
+date: "2023-03-17"
+output: 
+  pdf_document:
+    fig_width: 6.5
+    fig_height: 4
+  fontsize: 11pt
+---
+### Introduction 
+
+#### Research Question 
+In this study, we constructed predictive model to study how various measurements of length (such as width and height) affect the weight of fish.
+
+#### Background / Source of Data 
+Fish weight is a critical factor in fisheries science and management due to its value in explaining the growth and living condition of fish populations. We pulled data from Kaggle that recorded seven common different fish species in fish market sales. We then built a multiple linear regression model to predict the weight of fish based on up to five explanatory variables of fish length. Using the standard relative weight for each fish, we can evaluate the health of fisheries, such as whether they are properly managed and whether the number of competing predators is stable.
+
+#### Methodology / Paper Overview 
+We will first conduct a preliminary analysis to observe any relationships among the variables. Then, we will fit a multiple least squares linear regression model using all the variables and observe whether any assumptions are violated. If so, we will transform the data and refit the model. If necessary, we will then consider model selection criteria to remove redundant variables from our model. After deciding on the best model, we will interpret the result and provide analysis, including the real life application of fish weight on fisheries' health.
+
+### Data Description 
+Our data set of size [159,7] contains the following variables:  
+```{r echo = FALSE}
+df <- read.csv("Fish.csv")
+df <- df[-41, ] # Clean up data by removing anomalous measurement
+```
+- Species: Categorical variable representing the species of the fish (bream, parkki, perch, pike, roach, smelt, or whitefish)
+- Weight: Response variable, weight in grams
+- Length1: Vertical length (cm)
+- Length2: Diagonal length (cm)
+- Length3: Cross length (cm)
+- Height: (cm)
+- Width: (cm)
+
+Our data set had an anomalous measurement of a roach with 0 weight. In lieu of imputing the center value of the weight column for roaches, we removed the observation from the data.
+
+#### Summary Statistics 
+
+```{r echo = FALSE}
+summary_table <- rbind(apply(df[, -1], 2, min), apply(df[, -1], 2, mean), apply(df[, -1], 2, max), apply(df[, -1], 2, sd))
+rownames(summary_table) <- c("min", "mean", "max", "sd")
+round(summary_table, digits = 2)
+```
+
+#### Correlation Coefficient Matrix
+```{r echo = FALSE}
+cor(df[,-1]) # Removed the Species categorical column to identify numerical correlations
+```
+
+#### Scatter Plot Matrix
+```{r echo = FALSE, fig.height = 3, fig.width = 5, fig.align="center"}
+pairs(df[,-1], cex = 0.5)
+```
+
+Weight has a moderately linear relationship with each variable, although its relationships with Height and Width appear closer to logarithmic. We also see strong correlation among the five predictor variables. This makes sense since we were given five different measurements for fish length when fish are three-dimensional creatures.
+
+### Building the Model 
+
+#### Model 1: Untransformed Full Multiple Linear Regression
+
+We start by building a multiple least squares regression model including all five predictor variables with no transformations. This was our resulting model:  
+
+```{r include = FALSE}
+# Full model with all predictors and no transformations
+model <- lm(Weight ~ Length1 + Length2 + Length3 + Height + Width, data = df)
+library(car)
+```
+
+    Weight(hat) = `r round(model$coefficients[1], digits = 3)` + `r round(model$coefficients[2], digits = 3)`Length1 - `r -round(model$coefficients[3], digits = 3)`Length2 - `r -round(model$coefficients[4], digits = 3)`Length3 + `r round(model$coefficients[5], digits = 3)`Height + `r round(model$coefficients[6], digits = 3)`Width  
+
+R^2^ = 0.8855
+
+##### Model 1 Evaluation
+
+While our intuition would tell us that increasing the length measurements of a fish should increase its weight, we see that the coefficients of several measurements are negative. This suggests that our predictor variables are multicollinear and that some variables should be removed from the model. We can verify this by checking the variance inflation factors (VIF):
+
+```{r echo = FALSE}
+vif(model)
+```
+
+We also check the four diagnostic plots to test our model assumptions (namely, linearity of the relationship, normality of the errors, and homoscedasticity of the errors):
+
+```{r echo = FALSE}
+par(mfrow = c(2, 2))
+plot(model)
+```
+  
+The relationship between Weight and the predictors is nonlinear as shown in the Residuals v. Fitted Values plot. The Normal Q-Q plot and the Scale-Location plot show that the assumptions of normality and homoscedasticity of the errors may or may not be met. The errors appear to be normally distributed and homoscedastic except for a cluster of influential points, apparent in the Residuals vs. Leverage plot. 
+
+By checking Cook's distances, we can identify `r length(cooks.distance(model)[cooks.distance(model) > 4 / 156])` influential points.
+
+```{r echo = FALSE}
+outliers <- which(rstandard(model) > 2 | rstandard(model) < -2)
+levpoints <- which(hatvalues(model) > 12/158)
+bad_levpoints <- intersect(outliers, levpoints)
+inflpoints <- which(cooks.distance(model) > 4/156)
+cooks.distance(model)[cooks.distance(model) > 4 / 156]
+```
+
+Given that the relationship between the predictors and Weight is nonlinear, we will transform the variables.
+
+#### Model 2: Power Transformation Applied to Model 1
+
+We will apply a power transformation to simultaneously transform all variables at once. This is the result:
+
+```{r echo = FALSE}
+transformation <- powerTransform(cbind(df$Weight, df$Length1, df$Length2, df$Length3, df$Height, df$Width) ~ 1)
+round(transformation$roundlam, digits = 2)
+```
+
+All variables should be transformed. To make our transformed model easier to interpret, we will round off every power to 0, i.e. apply a log transformation to every variable. This is our resulting model:
+
+```{r echo = FALSE}
+ty <- log(df$Weight)
+tLength1 <- log(df$Length1)
+tLength2 <- log(df$Length2)
+tLength3 <- log(df$Length3)
+tHeight <- log(df$Height)
+tWidth <- log(df$Width)
+
+model_2 <- lm(ty ~ tLength1 + tLength2 + tLength3 + tHeight + tWidth)
+```
+
+    log(Weight) = `r round(model_2$coefficients[1], digits = 3)` + `r round(model_2$coefficients[2], digits = 3)`log(Length1) + `r round(model_2$coefficients[3], digits = 3)`log(Length2) - `r -round(model_2$coefficients[4], digits = 3)`log(Length3) + 
+    `r round(model_2$coefficients[5], digits = 3)`log(Height) + `r round(model_2$coefficients[6], digits = 3)`log(Width)  
+
+Multiple R^2^ = 0.9947; Adjusted R^2^ = 0.9945
+
+##### Model 2 Evaluation
+
+We notice that the coefficient of log(Length3) is negative, despite our intuition suggesting that increasing Length measurements should increase Weight. Multicollinearity is still present among the predictors, as shown by the VIF's. 
+
+```{r echo = FALSE}
+vif(model_2)
+```
+
+```{r echo = FALSE}
+par(mfrow = c(2, 2))
+plot(model_2)
+```
+
+The response variable and predictors are moderately linear as shown in the scatter plot. The error terms are better normally distributed as the Normal Q-Q plot is more strictly straight and 45 degrees. The error terms have a more constant variance shown by the scale-location plot as they are relatively straight but clustered into under 1.2 and over 1.3. For further elaboration about the influential points, see the Appendix. We thus should reduce the model by selecting variables.
+
+#### Model 3: Reduced Model via Variable Selection
+
+To choose which variables can be removed, we will apply the selection techniques of the foward stepwise Akaike information criterion (AIC), the forward stepwise Bayes information criterion (BIC), the backward stepwise AIC, and the backward stepwise BIC.  
+```{r include = FALSE}
+# Forward Stepwise AIC
+mint <- lm(ty ~ 1)
+forwardAIC <- step(mint, scope = list(lower = ~1, upper = model_2), direction = "forward")
+
+# Forward Stepwise BIC
+forwardBIC <- step(mint, scope = list(lower = ~1, upper = model_2), direction = "forward", k = log(158))
+
+# Backward Stepwise AIC
+backwardAIC <- step(model_2, direction = "backward")
+
+# Backward Stepwise BIC
+backwardBIC <- step(model_2, direction = "backward", k = log(158))
+```
+
+Models with these variables were selected for each method; note that logs have been taken for each variable:  
+- Forward stepwise AIC: Length2, Length3, Height, Width  
+- Forward stepwise BIC: Length2, Length3, Height, Width  
+- Backward stepwise AIC: Length2, Height, Width  
+- Backward stepwise BIC: Length2, Height, Width  
+
+We are thus left with two potential reduced models. Fortunately, the larger model is simply the other model with one extra predictor added, so we can run a partial F-test to see if adding the extra predictor (Length3) is significant or not.
+
+```{r echo = FALSE}
+om1 <- lm(ty ~ tLength2 + tLength3 + tHeight + tWidth)
+om2 <- lm(ty ~ tLength2 + tHeight + tWidth)
+anova(om2, om1)
+```
+
+Since p > 0.05, we fail to reject the null hypothesis and conclude that there is no sufficient evidence in favor of the full model against the reduced model without Length3. Therefore this is our new model:
+
+    log(Weight) = `r round(om2$coefficients[1], digits = 3)` + `r round(om2$coefficients[2], digits = 3)`log(Length2) + `r round(om2$coefficients[3], digits = 3)`log(Height) + `r round(om2$coefficients[4], digits = 3)`log(Width)  
+
+Multiple R^2^ = 0.9946; Adjusted R^2^ = 0.9945
+
+##### Model 3 Evaluation
+
+We will check the four diagnostic plots to see if our assumptions are satisfied:
+```{r echo = FALSE}
+par(mfrow = c(2, 2))
+plot(om2)
+```
+
+The relationship between Weight and the predictors is normal, and the errors are homoscedastic. We can see a small cluster of outliers in the Normal Q-Q plot, but we are satisfied that the errors are normally distributed. All of our assumptions are satisfied.
+
+Since multicollinearity was a major issue in our two previous models, we will check the VIF's of Model 3:
+
+```{r echo = FALSE}
+vif(om2)
+```
+
+The VIF's are still high, but they are lower than they were for models 1 and 2. It's natural to expect fish that are long in one direction to be long in every other direction, so this problem is unavoidable. Since fish are three-dimensional, it makes sense that our final model would include three length measurements.
+
+#### Model 3 Interpretation
+Since 1) all the assumptions of multiple least squares regression are satisfied; and 2) we cannot simplify the model any further without losing accuracy, our final model to predict fish weight is model 3.  
+
+    log(Weight) = `r round(om2$coefficients[1], digits = 3)` + `r round(om2$coefficients[2], digits = 3)`log(Length2) + `r round(om2$coefficients[3], digits = 3)`log(Height) + `r round(om2$coefficients[4], digits = 3)`log(Width) 
+
+- If Height and Width are held constant, a 1% increase in Length2 results in a `r round(om2$coefficients[2], digits = 3)`% increase in Weight
+- If Length2 and Width are held constant, a 1% increase in Height results in a `r round(om2$coefficients[3], digits = 3)`% increase in Weight
+- If Length2 and Height are held constant, a 1% increase in Weight results in a `r round(om2$coefficients[4], digits = 3)`% increase in Weight  
+
+Note that the y-intercept term of `r round(om2$coefficients[1], digits = 3)` is not meaningful in this context, since fish, being three-dimensional, cannot possibly take values of 0 for Length2, Height, or Width.
+
+### Discussion
+
+The use of linear regression models to predict the relationship between fish dimension and weight is a common approach in fisheries research. In a study by Vaseghi et al. (2020), the author investigated the relationship between length and weight of the commercially important fish species, Yellowfin tuna, using linear regression models. The result showed a strong correlation between length and weight. Similarly, a study by Polar and Ozekinci (2018) examined the relationship between length and weight of European anchovy and found significant positive correlation between two variables. These studies provide evidence for the use of linear regression models to predict fish weight based on length measurements, supporting the findings of our present study. Our findings allow for the development of predictive models that can inform fisheries management decisions, such as setting catch limits and determining sustainable harvest levels. 
+
+#### Potential Future Improvements
+
+In our model, we ignored the Species variable, instead choosing to use the same model to predict the weight of fish in every species. We were limited by a lack of sufficient data on some species (e.g. there were only six observations of whitefish). However, we recognize that each species is unique and may need to have their weights modeled with different predictors. We recommend that more research be conducted in this area, including, but not limited to, fitting individual models for each species once sufficient data is collected.
+
+### Appendix
+
+#### Individual Plots of Predictors vs. Response
+```{r, fig.align="center"}
+par(mfrow = c(3,2))
+plot(df$Length1, df$Weight)
+plot(df$Length2, df$Weight)
+plot(df$Length3, df$Weight)
+plot(df$Height, df$Weight)
+plot(df$Width, df$Weight)
+```
+
+#### Boxplots of Variables (EDA)
+```{r, fig.align="center"}
+par(mfrow = c(1,6))
+boxplot(df$Weight)
+boxplot(df$Length1)
+boxplot(df$Length2)
+boxplot(df$Length3)
+boxplot(df$Height)
+boxplot(df$Width)
+```
+
+#### Summary Output of Transformed Full Model
+
+```{r}
+summary(om1)
+```
+
+#### Summary Output of Transformed Reduced Model
+
+```{r}
+summary(om2)
+```
+
+#### Model 2 Influential and Leverage Points
+
+```{r}
+outliers_2 <- which(rstandard(model_2) > 2 | rstandard(model_2) < -2)
+levpoints_2 <- which(hatvalues(model_2) > 12/158)
+bad_levpoints_2 <- intersect(outliers, levpoints)
+inflpoints_2 <- which(cooks.distance(model_2) > 4/156)
+```
+
+- The leverage points are those above 12/158, which are `r levpoints_2`
+- The outliers are points `r outliers_2`.
+- The bad leverage points are those that are outliers and leverage points, which are points `r bad_levpoints_2`.
+- The influential points are those with Cook's distance greater than 4/156, which are points `r inflpoints_2`.
+
+#### Transformed Full Model Accuracy Metrics
+```{r}
+om1 <- lm(ty ~ tWidth + tLength3 + tHeight + tLength2)
+p <- 4
+n <- nrow(df)
+Rad1 <- summary(om1)$adj.r.squared
+AIC1 <- extractAIC(om1)[2]
+AICc1 <- extractAIC(om1)[2] + (2 * (p + 2) * (p + 3) / (n - p - 1))
+BIC1 <- extractAIC(om1, k = log(n))[2]
+c(Rad1, AIC1, AICc1, BIC1)
+```
+
+#### Transformed Reduced Model Accuracy Metrics
+```{r}
+om2 <- lm(ty ~ tWidth + tHeight + tLength2)
+p <- 3
+n <- nrow(df)
+Rad2 <- summary(om2)$adj.r.squared
+AIC2 <- extractAIC(om2)[2]
+AICc2 <- extractAIC(om2)[2] + (2 * (p + 2) * (p + 3) / (n - p - 1))
+BIC2 <- extractAIC(om2, k = log(n))[2]
+c(Rad2, AIC2, AICc2, BIC2)
+```
+
+#### Sources
+
+Vaseghi, S., Motallebi Moghanjoghi, A. A., & Mirshamsi, O. (2020). Length–weight relationships of yellowfin tuna (Thunnus albacares) in the Persian Gulf and Oman Sea. Journal of Applied Ichthyology, 36(2), 169-173. doi: 10.1111/jai.13963
+
+Polat, N., & Özekinci, U. (2018). Length-weight relationships of the European anchovy Engraulis encrasicolus in the Black Sea. Turkish Journal of Fisheries and Aquatic Sciences, 18(7), 959-965. doi: 10.4194/1303-2712-v18_7_02
+
+Alabama Cooperative Extension System. (2020, October 5). Relative Weight: An Easy-to-Measure Index of Fish Condition [Blog post]. Retrieved from https://www.aces.edu/blog/topics/fish-water/relative-weight-an-easy-to-measure-index-of-fish-condition/
+
+Michigan Department of Natural Resources. (2013). Standard Methods for the Identification and Analysis of Aquatic Invertebrates in the Great Lakes Basin (Chapter 17: Macroinvertebrate Community Index). Retrieved from https://www2.dnr.state.mi.us/PUBLICATIONS/PDFS/ifr/manual/SMII%20Chapter17.pdf
+
